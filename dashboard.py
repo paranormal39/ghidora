@@ -12,6 +12,9 @@ import json
 from pathlib import Path
 import subprocess
 import shutil
+import sqlite3
+import time
+import psutil
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -96,6 +99,18 @@ autonomous_thread = None
 FILE_WATCHER_ENABLED = os.getenv('FILE_WATCHER_ENABLED', 'false').lower() == 'true'
 WATCH_DIRECTORY = os.getenv('WATCH_DIRECTORY', os.getcwd())
 file_observer = None
+
+# Safety settings
+SAFE_MODE = os.getenv('SAFE_MODE', 'true').lower() == 'true'
+ALLOW_FILE_WRITE = os.getenv('ALLOW_FILE_WRITE', 'false').lower() == 'true'
+ALLOW_GIT_COMMIT = os.getenv('ALLOW_GIT_COMMIT', 'false').lower() == 'true'
+ALLOW_TERMINAL = os.getenv('ALLOW_TERMINAL', 'false').lower() == 'true'
+
+# Database configuration
+DB_PATH = Path(os.getenv('DB_PATH', 'ghidora.db'))
+
+# Benchmark storage (in-memory cache, persisted to SQLite)
+BENCHMARK_RESULTS = []
 
 class CodeFileHandler(FileSystemEventHandler):
     """Handle file system events for code files"""
@@ -212,6 +227,175 @@ def setup_scheduler():
     scheduler.start()
     print("⏰ Scheduler started with jobs:", list(SCHEDULED_JOBS.keys()))
 
+def init_database():
+    """Initialize SQLite database with required tables"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tasks (
+            id TEXT PRIMARY KEY,
+            type TEXT,
+            prompt TEXT,
+            output_file TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT,
+            started_at TEXT,
+            completed_at TEXT
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS task_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id TEXT,
+            final_output TEXT,
+            file_written TEXT,
+            file_error TEXT,
+            error TEXT,
+            created_at TEXT,
+            FOREIGN KEY (task_id) REFERENCES tasks(id)
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS task_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id TEXT,
+            step INTEGER,
+            role TEXT,
+            model TEXT,
+            output TEXT,
+            created_at TEXT,
+            FOREIGN KEY (task_id) REFERENCES tasks(id)
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS model_benchmarks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model TEXT,
+            prompt TEXT,
+            response_time REAL,
+            response_length INTEGER,
+            success INTEGER,
+            error TEXT,
+            cpu_before REAL,
+            cpu_after REAL,
+            ram_before REAL,
+            ram_after REAL,
+            timestamp TEXT
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    print(f"📦 Database initialized: {DB_PATH}")
+
+def db_add_task(task):
+    """Add a task to the database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT OR REPLACE INTO tasks (id, type, prompt, output_file, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (
+        task.get('id'),
+        task.get('type', 'feature'),
+        task.get('prompt', ''),
+        task.get('output_file'),
+        'pending',
+        datetime.now().isoformat()
+    ))
+    conn.commit()
+    conn.close()
+
+def db_update_task_status(task_id, status, started_at=None, completed_at=None):
+    """Update task status in database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    if started_at:
+        cursor.execute('UPDATE tasks SET status=?, started_at=? WHERE id=?', (status, started_at, task_id))
+    elif completed_at:
+        cursor.execute('UPDATE tasks SET status=?, completed_at=? WHERE id=?', (status, completed_at, task_id))
+    else:
+        cursor.execute('UPDATE tasks SET status=? WHERE id=?', (status, task_id))
+    conn.commit()
+    conn.close()
+
+def db_add_task_result(task_id, result):
+    """Add task result to database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO task_results (task_id, final_output, file_written, file_error, error, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (
+        task_id,
+        result.get('final_output', ''),
+        result.get('file_written'),
+        result.get('file_error'),
+        result.get('error'),
+        datetime.now().isoformat()
+    ))
+    conn.commit()
+    conn.close()
+
+def db_add_task_log(task_id, step, role, model, output):
+    """Add task step log to database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO task_logs (task_id, step, role, model, output, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (task_id, step, role, model, output, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+def db_add_benchmark(benchmark):
+    """Add benchmark result to database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO model_benchmarks 
+        (model, prompt, response_time, response_length, success, error, cpu_before, cpu_after, ram_before, ram_after, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        benchmark['model'],
+        benchmark['prompt'],
+        benchmark['response_time'],
+        benchmark['response_length'],
+        1 if benchmark['success'] else 0,
+        benchmark.get('error'),
+        benchmark['cpu_before'],
+        benchmark['cpu_after'],
+        benchmark['ram_before'],
+        benchmark['ram_after'],
+        benchmark['timestamp']
+    ))
+    conn.commit()
+    conn.close()
+
+def db_get_recent_benchmarks(limit=50):
+    """Get recent benchmark results from database"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM model_benchmarks ORDER BY id DESC LIMIT ?', (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def db_get_recent_tasks(limit=50):
+    """Get recent tasks from database"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?', (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
 def load_conversations():
     """Load conversations from JSON file"""
     global conversations
@@ -230,6 +414,19 @@ def save_conversations():
             json.dump(conversations, f, indent=2, default=str)
     except Exception as e:
         print(f"Error saving conversations: {e}")
+
+def get_system_stats():
+    """Get current system statistics"""
+    mem = psutil.virtual_memory()
+    disk = psutil.disk_usage('/')
+    return {
+        'cpu_percent': psutil.cpu_percent(interval=0.1),
+        'ram_percent': mem.percent,
+        'ram_used_gb': round(mem.used / (1024**3), 2),
+        'ram_available_gb': round(mem.available / (1024**3), 2),
+        'disk_percent': disk.percent,
+        'current_time': datetime.now().isoformat()
+    }
 
 def check_model_health(model):
     """Check if a model is responsive"""
@@ -267,6 +464,84 @@ def health_check():
 @app.route('/static/<path:filename>')
 def static_files(filename):
     return send_from_directory('static', filename)
+
+@app.route('/system', methods=['GET'])
+def system_stats():
+    """Get current system statistics"""
+    stats = get_system_stats()
+    stats['safe_mode'] = SAFE_MODE
+    stats['allow_file_write'] = ALLOW_FILE_WRITE
+    stats['allow_git_commit'] = ALLOW_GIT_COMMIT
+    stats['allow_terminal'] = ALLOW_TERMINAL
+    stats['autonomous_mode'] = AUTONOMOUS_MODE
+    stats['task_queue_length'] = len(TASK_QUEUE)
+    return jsonify(stats)
+
+@app.route('/benchmark', methods=['POST'])
+def run_benchmark():
+    """Run a benchmark on a specific model"""
+    data = request.get_json()
+    model = data.get('model', 'llama3.2:3b')
+    prompt = data.get('prompt', 'Write a hello world program in Python.')
+    
+    # Get system stats before
+    cpu_before = psutil.cpu_percent(interval=0.1)
+    ram_before = psutil.virtual_memory().percent
+    
+    benchmark = {
+        'model': model,
+        'prompt': prompt,
+        'cpu_before': cpu_before,
+        'ram_before': ram_before,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    try:
+        start_time = time.time()
+        res = ollama.chat(model=model, messages=[{'role': 'user', 'content': prompt}])
+        end_time = time.time()
+        
+        response = res['message']['content']
+        benchmark['response_time'] = round(end_time - start_time, 3)
+        benchmark['response_length'] = len(response)
+        benchmark['success'] = True
+        benchmark['response'] = response[:500]  # First 500 chars for preview
+        
+    except Exception as e:
+        benchmark['response_time'] = 0
+        benchmark['response_length'] = 0
+        benchmark['success'] = False
+        benchmark['error'] = str(e)
+    
+    # Get system stats after
+    benchmark['cpu_after'] = psutil.cpu_percent(interval=0.1)
+    benchmark['ram_after'] = psutil.virtual_memory().percent
+    
+    # Save to database
+    db_add_benchmark(benchmark)
+    BENCHMARK_RESULTS.append(benchmark)
+    
+    return jsonify(benchmark)
+
+@app.route('/benchmarks', methods=['GET'])
+def get_benchmarks():
+    """Get recent benchmark results"""
+    limit = request.args.get('limit', 50, type=int)
+    benchmarks = db_get_recent_benchmarks(limit)
+    return jsonify({
+        'benchmarks': benchmarks,
+        'count': len(benchmarks)
+    })
+
+@app.route('/safety', methods=['GET'])
+def get_safety_settings():
+    """Get current safety settings"""
+    return jsonify({
+        'safe_mode': SAFE_MODE,
+        'allow_file_write': ALLOW_FILE_WRITE,
+        'allow_git_commit': ALLOW_GIT_COMMIT,
+        'allow_terminal': ALLOW_TERMINAL
+    })
 
 @app.route('/roles', methods=['GET'])
 def get_roles():
@@ -684,6 +959,9 @@ def process_autonomous_task(task):
     
     print(f"🤖 Processing task {task_id}: {prompt[:50]}...")
     
+    # Update task status in database
+    db_update_task_status(task_id, 'processing', started_at=datetime.now().isoformat())
+    
     result = {
         'task_id': task_id,
         'task': task,
@@ -726,40 +1004,50 @@ Continue as the {role.replace('_', ' ')} specialist."""
                 'model': model,
                 'output': current_output
             })
+            
+            # Log step to database
+            db_add_task_log(task_id, i + 1, role, model, current_output)
         
         result['final_output'] = current_output
         result['status'] = 'completed'
         result['completed_at'] = datetime.now().isoformat()
         
-        # Write to file if specified
+        # Write to file if specified AND allowed by safety settings
         if output_file:
-            try:
-                output_path = Path(output_file)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                # Extract code if present
-                code_content = current_output
-                if '```' in code_content:
-                    import re
-                    code_blocks = re.findall(r'```[\w]*\n([\s\S]*?)```', code_content)
-                    if code_blocks:
-                        code_content = '\n\n'.join(code_blocks)
-                
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    f.write(code_content)
-                
-                result['file_written'] = str(output_path)
-                print(f"   ✅ Wrote output to {output_path}")
-                
-                EDITED_FILES_LOG.append({
-                    'timestamp': datetime.now().isoformat(),
-                    'file_path': str(output_path),
-                    'task_id': task_id,
-                    'auto_generated': True
-                })
-            except Exception as e:
-                result['file_error'] = str(e)
-                print(f"   ❌ Failed to write file: {e}")
+            if SAFE_MODE and not ALLOW_FILE_WRITE:
+                result['file_skipped'] = 'File write disabled by safety settings'
+                print(f"   ⚠️ File write skipped (SAFE_MODE=true, ALLOW_FILE_WRITE=false)")
+            else:
+                try:
+                    output_path = Path(output_file)
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Extract code if present
+                    code_content = current_output
+                    if '```' in code_content:
+                        code_blocks = re.findall(r'```[\w]*\n([\s\S]*?)```', code_content)
+                        if code_blocks:
+                            code_content = '\n\n'.join(code_blocks)
+                    
+                    with open(output_path, 'w', encoding='utf-8') as f:
+                        f.write(code_content)
+                    
+                    result['file_written'] = str(output_path)
+                    print(f"   ✅ Wrote output to {output_path}")
+                    
+                    EDITED_FILES_LOG.append({
+                        'timestamp': datetime.now().isoformat(),
+                        'file_path': str(output_path),
+                        'task_id': task_id,
+                        'auto_generated': True
+                    })
+                except Exception as e:
+                    result['file_error'] = str(e)
+                    print(f"   ❌ Failed to write file: {e}")
+        
+        # Update database
+        db_update_task_status(task_id, 'completed', completed_at=datetime.now().isoformat())
+        db_add_task_result(task_id, result)
         
         print(f"✅ Task {task_id} completed")
         
@@ -767,6 +1055,8 @@ Continue as the {role.replace('_', ' ')} specialist."""
         result['status'] = 'failed'
         result['error'] = str(e)
         result['completed_at'] = datetime.now().isoformat()
+        db_update_task_status(task_id, 'failed', completed_at=datetime.now().isoformat())
+        db_add_task_result(task_id, result)
         print(f"❌ Task {task_id} failed: {e}")
     
     return result
@@ -792,12 +1082,19 @@ def run_autonomous_queue():
 @app.route('/tasks', methods=['GET'])
 def get_tasks():
     """Get current task queue and results"""
+    recent_tasks = db_get_recent_tasks(20)
     return jsonify({
         'autonomous_mode': AUTONOMOUS_MODE,
         'queue': TASK_QUEUE,
         'queue_length': len(TASK_QUEUE),
-        'results': TASK_RESULTS[-20:],  # Last 20 results
-        'total_completed': len(TASK_RESULTS)
+        'results': TASK_RESULTS[-20:],  # Last 20 in-memory results
+        'recent_tasks': recent_tasks,  # From database
+        'total_completed': len(TASK_RESULTS),
+        'safety': {
+            'safe_mode': SAFE_MODE,
+            'allow_file_write': ALLOW_FILE_WRITE,
+            'allow_git_commit': ALLOW_GIT_COMMIT
+        }
     })
 
 @app.route('/tasks', methods=['POST'])
@@ -813,6 +1110,7 @@ def add_tasks():
         if 'id' not in task:
             task['id'] = str(uuid.uuid4())
         TASK_QUEUE.append(task)
+        db_add_task(task)  # Persist to database
     
     return jsonify({
         'added': len(tasks),
@@ -1313,6 +1611,9 @@ def run_discord_bot():
     bot.run(DISCORD_TOKEN)
 
 if __name__ == '__main__':
+    # Initialize database
+    init_database()
+    
     # Load saved conversations
     load_conversations()
     print(f"📂 Loaded {len(conversations)} conversations from {CONVERSATIONS_FILE}")
@@ -1331,8 +1632,10 @@ if __name__ == '__main__':
     else:
         print("⚠️  Discord token not configured. Set DISCORD_TOKEN environment variable to enable Discord bot.")
 
-    print("🐉 Ghidorah Dashboard starting...")
-    print(f"   Git Integration: {'Enabled' if GIT_ENABLED else 'Disabled'}")
+    print("🐉 Ghidora Dashboard starting...")
+    print(f"   Safe Mode: {'ON' if SAFE_MODE else 'OFF'}")
+    print(f"   Allow File Write: {'Yes' if ALLOW_FILE_WRITE else 'No'}")
+    print(f"   Allow Git Commit: {'Yes' if ALLOW_GIT_COMMIT else 'No'}")
     print(f"   Scheduler: {'Enabled' if SCHEDULER_ENABLED else 'Disabled'}")
     print(f"   File Watcher: {'Enabled' if FILE_WATCHER_ENABLED else 'Disabled'}")
     print(f"   Available Pipelines: {list(PIPELINES.keys())}")

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ghidorah - 3-Headed LLM Dashboard</title>
+    <title>Ghidora - Local LLM Dashboard</title>
     <style>
         :root {
             --bg-dark: #0a0a0f;
@@ -15,367 +15,186 @@
             --red: #ff0040;
             --yellow: #ffff00;
             --green: #00ff88;
+            --orange: #ff8800;
         }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg-dark); color: var(--text); min-height: 100vh; }
+        .container { max-width: 1600px; margin: 0 auto; padding: 15px; }
+        header { text-align: center; padding: 15px 0; border-bottom: 1px solid var(--border); margin-bottom: 15px; }
+        h1 { font-size: 1.8rem; background: linear-gradient(90deg, var(--cyan), var(--red), var(--yellow)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .subtitle { color: var(--text-muted); font-size: 0.85rem; }
         
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        .system-bar { display: flex; justify-content: center; gap: 15px; margin: 10px 0; flex-wrap: wrap; }
+        .sys-stat { display: flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border); font-size: 0.8rem; }
+        .sys-stat .val { font-weight: bold; color: var(--cyan); }
+        .sys-stat.warn .val { color: var(--orange); }
+        .sys-stat.bad .val { color: var(--red); }
+        .sys-stat.good .val { color: var(--green); }
         
-        body {
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            background: var(--bg-dark);
-            color: var(--text);
-            min-height: 100vh;
-        }
+        .main-grid { display: grid; grid-template-columns: 1fr 360px; gap: 15px; }
+        .left-col { display: flex; flex-direction: column; gap: 15px; }
         
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
+        .card { background: var(--bg-card); border-radius: 10px; border: 1px solid var(--border); padding: 12px; }
+        .card h3 { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
         
-        header {
-            text-align: center;
-            padding: 30px 0;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 30px;
-        }
-        
-        h1 {
-            font-size: 2.5rem;
-            background: linear-gradient(90deg, var(--cyan), var(--red), var(--yellow));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        
-        .subtitle {
-            color: var(--text-muted);
-            margin-top: 10px;
-        }
-        
-        .heads-status {
-            display: flex;
-            justify-content: center;
-            gap: 30px;
-            margin: 20px 0;
-        }
-        
-        .head-indicator {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background: var(--bg-card);
-            border-radius: 20px;
-            border: 1px solid var(--border);
-        }
-        
-        .head-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        .main-grid {
-            display: grid;
-            grid-template-columns: 1fr 350px;
-            gap: 20px;
-        }
-        
-        .chat-section {
-            background: var(--bg-card);
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            height: 70vh;
-        }
-        
-        .chat-header {
-            padding: 15px 20px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-        }
-        
-        .message {
-            margin-bottom: 15px;
-            padding: 12px 16px;
-            border-radius: 8px;
-            max-width: 85%;
-        }
-        
-        .message.user {
-            background: #1a1a2e;
-            margin-left: auto;
-            border: 1px solid var(--border);
-        }
-        
-        .message.assistant {
-            background: var(--bg-dark);
-            border-left: 3px solid var(--cyan);
-        }
-        
+        .chat-section { display: flex; flex-direction: column; height: 50vh; padding: 0; }
+        .chat-header { padding: 10px 15px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 15px; }
+        .message { margin-bottom: 12px; padding: 10px 12px; border-radius: 8px; max-width: 90%; }
+        .message.user { background: #1a1a2e; margin-left: auto; border: 1px solid var(--border); }
+        .message.assistant { background: var(--bg-dark); border-left: 3px solid var(--cyan); }
         .message.assistant.code { border-left-color: var(--red); }
         .message.assistant.creative { border-left-color: var(--yellow); }
+        .message-header { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 5px; }
         
-        .message-header {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-        }
+        .chat-input { padding: 10px; border-top: 1px solid var(--border); }
+        .input-row { display: flex; gap: 8px; }
+        #prompt-input { flex: 1; padding: 10px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; resize: none; }
+        #prompt-input:focus { outline: none; border-color: var(--cyan); }
         
-        .chat-input-area {
-            padding: 15px;
-            border-top: 1px solid var(--border);
-        }
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: transform 0.1s; }
+        .btn:hover { transform: scale(1.02); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: linear-gradient(135deg, var(--cyan), #0088aa); color: #000; }
+        .btn-secondary { background: var(--bg-dark); border: 1px solid var(--border); color: var(--text); }
+        .btn-danger { background: var(--red); color: #fff; }
+        .btn-success { background: var(--green); color: #000; }
         
-        .input-row {
-            display: flex;
-            gap: 10px;
-        }
+        select { padding: 8px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); width: 100%; }
         
-        #prompt-input {
-            flex: 1;
-            padding: 12px 16px;
-            background: var(--bg-dark);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text);
-            font-size: 1rem;
-            resize: none;
-        }
+        .sidebar { display: flex; flex-direction: column; gap: 12px; }
         
-        #prompt-input:focus {
-            outline: none;
-            border-color: var(--cyan);
-        }
+        .pipeline-btn { width: 100%; padding: 8px 10px; margin-bottom: 6px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; text-align: left; }
+        .pipeline-btn:hover { border-color: var(--cyan); }
+        .pipeline-btn .name { font-weight: bold; font-size: 0.85rem; }
+        .pipeline-btn .desc { font-size: 0.7rem; color: var(--text-muted); }
         
-        .send-btn {
-            padding: 12px 24px;
-            background: linear-gradient(135deg, var(--cyan), #0088aa);
-            border: none;
-            border-radius: 8px;
-            color: #000;
-            font-weight: bold;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .stat-box { text-align: center; padding: 8px; background: var(--bg-dark); border-radius: 6px; }
+        .stat-val { font-size: 1.2rem; font-weight: bold; color: var(--cyan); }
+        .stat-label { font-size: 0.65rem; color: var(--text-muted); }
         
-        .send-btn:hover {
-            transform: scale(1.05);
-        }
+        .task-list { max-height: 120px; overflow-y: auto; }
+        .task-item { padding: 6px 8px; background: var(--bg-dark); border-radius: 4px; margin-bottom: 4px; font-size: 0.75rem; display: flex; justify-content: space-between; }
+        .task-item .status { padding: 2px 6px; border-radius: 3px; font-size: 0.65rem; }
+        .task-item .status.pending { background: var(--orange); color: #000; }
+        .task-item .status.completed { background: var(--green); color: #000; }
+        .task-item .status.failed { background: var(--red); color: #fff; }
         
-        .send-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
+        .benchmark-form { display: flex; flex-direction: column; gap: 8px; }
+        .benchmark-form input, .benchmark-form select { padding: 8px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 4px; color: var(--text); }
         
-        .sidebar {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
+        .benchmark-results { max-height: 150px; overflow-y: auto; }
+        .bench-item { padding: 6px 8px; background: var(--bg-dark); border-radius: 4px; margin-bottom: 4px; font-size: 0.75rem; }
+        .bench-item .model { color: var(--cyan); font-weight: bold; }
+        .bench-item .time { color: var(--green); }
+        .bench-item .fail { color: var(--red); }
         
-        .card {
-            background: var(--bg-card);
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            padding: 15px;
-        }
+        .safety-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+        .badge { padding: 3px 8px; border-radius: 10px; font-size: 0.7rem; }
+        .badge.on { background: var(--green); color: #000; }
+        .badge.off { background: var(--red); color: #fff; }
         
-        .card h3 {
-            font-size: 0.9rem;
-            color: var(--text-muted);
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
+        .loading { display: none; text-align: center; padding: 15px; }
+        .loading.active { display: block; }
+        .spinner { width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--cyan); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 8px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
         
-        .role-select {
-            width: 100%;
-            padding: 10px;
-            background: var(--bg-dark);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            cursor: pointer;
-        }
+        pre { background: #0d0d12; padding: 10px; border-radius: 6px; overflow-x: auto; margin-top: 8px; font-size: 0.8rem; }
+        code { font-family: 'Fira Code', monospace; }
         
-        .pipeline-btn {
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 8px;
-            background: var(--bg-dark);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            cursor: pointer;
-            text-align: left;
-            transition: border-color 0.2s;
-        }
-        
-        .pipeline-btn:hover {
-            border-color: var(--cyan);
-        }
-        
-        .pipeline-btn .name {
-            font-weight: bold;
-        }
-        
-        .pipeline-btn .desc {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-        }
-        
-        .stats {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-        
-        .stat {
-            text-align: center;
-            padding: 10px;
-            background: var(--bg-dark);
-            border-radius: 6px;
-        }
-        
-        .stat-value {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: var(--cyan);
-        }
-        
-        .stat-label {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
-        
-        .loading {
-            display: none;
-            text-align: center;
-            padding: 20px;
-        }
-        
-        .loading.active {
-            display: block;
-        }
-        
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid var(--border);
-            border-top-color: var(--cyan);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 10px;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        pre {
-            background: #0d0d12;
-            padding: 12px;
-            border-radius: 6px;
-            overflow-x: auto;
-            margin-top: 10px;
-        }
-        
-        code {
-            font-family: 'Fira Code', monospace;
-            font-size: 0.9rem;
-        }
+        .tabs { display: flex; gap: 5px; margin-bottom: 10px; }
+        .tab { padding: 6px 12px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px 6px 0 0; cursor: pointer; font-size: 0.8rem; }
+        .tab.active { background: var(--bg-card); border-bottom-color: var(--bg-card); color: var(--cyan); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🐉 GHIDORAH</h1>
-            <p class="subtitle">Three-Headed Local LLM Dashboard</p>
-            <div class="heads-status">
-                <div class="head-indicator">
-                    <div class="head-dot" style="background: var(--cyan);"></div>
-                    <span>Analysis (Llama 3.2)</span>
-                </div>
-                <div class="head-indicator">
-                    <div class="head-dot" style="background: var(--red);"></div>
-                    <span>Code (Qwen 2.5)</span>
-                </div>
-                <div class="head-indicator">
-                    <div class="head-dot" style="background: var(--yellow);"></div>
-                    <span>Creative (Gemma2)</span>
-                </div>
-            </div>
+            <h1>🐉 GHIDORA</h1>
+            <p class="subtitle">Local LLM Management Dashboard</p>
         </header>
         
+        <div class="system-bar" id="system-bar">
+            <div class="sys-stat" id="cpu-stat"><span>CPU:</span> <span class="val" id="cpu-val">--%</span></div>
+            <div class="sys-stat" id="ram-stat"><span>RAM:</span> <span class="val" id="ram-val">--%</span></div>
+            <div class="sys-stat"><span>Disk:</span> <span class="val" id="disk-val">--%</span></div>
+            <div class="sys-stat" id="auto-stat"><span>Auto:</span> <span class="val" id="auto-val">OFF</span></div>
+            <div class="sys-stat" id="queue-stat"><span>Queue:</span> <span class="val" id="queue-val">0</span></div>
+            <div class="sys-stat" id="safe-stat"><span>Safe:</span> <span class="val" id="safe-val">ON</span></div>
+        </div>
+        
         <div class="main-grid">
-            <div class="chat-section">
-                <div class="chat-header">
-                    <span>💬 Chat</span>
-                    <span id="conversation-id" style="font-size: 0.8rem; color: var(--text-muted);"></span>
-                </div>
-                <div class="chat-messages" id="chat-messages">
-                    <div class="message assistant">
-                        <div class="message-header">🐉 Ghidorah</div>
-                        <div>Welcome! I am Ghidorah, a three-headed AI assistant. Choose a role or pipeline and ask me anything.</div>
+            <div class="left-col">
+                <div class="card chat-section">
+                    <div class="chat-header">
+                        <span>💬 Chat</span>
+                        <select id="role-select" style="width: auto; padding: 4px 8px;">
+                            <option value="all_three">🐉 All Heads</option>
+                            <option value="analysis">🔍 Analysis</option>
+                            <option value="code_generation">💻 Code</option>
+                            <option value="creative_writing">✨ Creative</option>
+                        </select>
+                    </div>
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="message assistant">
+                            <div class="message-header">🐉 Ghidora</div>
+                            <div>Welcome! I'm Ghidora, a 3-headed local LLM assistant. Choose a role or pipeline to get started.</div>
+                        </div>
+                    </div>
+                    <div class="loading" id="loading"><div class="spinner"></div><span>Processing...</span></div>
+                    <div class="chat-input">
+                        <div class="input-row">
+                            <textarea id="prompt-input" placeholder="Ask Ghidora..." rows="2"></textarea>
+                            <button class="btn btn-primary" id="send-btn" onclick="sendMessage()">Send</button>
+                        </div>
                     </div>
                 </div>
-                <div class="loading" id="loading">
-                    <div class="spinner"></div>
-                    <span>Ghidorah is thinking...</span>
-                </div>
-                <div class="chat-input-area">
-                    <div class="input-row">
-                        <textarea id="prompt-input" placeholder="Ask Ghidorah anything..." rows="2"></textarea>
-                        <button class="send-btn" id="send-btn" onclick="sendMessage()">Send</button>
+                
+                <div class="card">
+                    <div class="tabs">
+                        <div class="tab active" onclick="showTab('benchmarks')">Benchmarks</div>
+                        <div class="tab" onclick="showTab('tasks')">Tasks</div>
+                    </div>
+                    <div id="benchmarks-tab" class="tab-content active">
+                        <div class="benchmark-form">
+                            <select id="bench-model">
+                                <option value="llama3.2:3b">Llama 3.2 (3B)</option>
+                                <option value="qwen2.5-coder:1.5b">Qwen 2.5 Coder (1.5B)</option>
+                                <option value="gemma2:2b">Gemma2 (2B)</option>
+                            </select>
+                            <input type="text" id="bench-prompt" placeholder="Benchmark prompt..." value="Write hello world in Python">
+                            <button class="btn btn-secondary" onclick="runBenchmark()">Run Benchmark</button>
+                        </div>
+                        <h3 style="margin-top: 10px;">Recent Results</h3>
+                        <div class="benchmark-results" id="benchmark-results"></div>
+                    </div>
+                    <div id="tasks-tab" class="tab-content">
+                        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                            <button class="btn btn-success" onclick="startAutonomous()" id="start-auto-btn">Start</button>
+                            <button class="btn btn-danger" onclick="stopAutonomous()" id="stop-auto-btn">Stop</button>
+                        </div>
+                        <h3>Task Queue</h3>
+                        <div class="task-list" id="task-list"></div>
                     </div>
                 </div>
             </div>
             
             <div class="sidebar">
                 <div class="card">
-                    <h3>Select Role</h3>
-                    <select class="role-select" id="role-select">
-                        <option value="all_three">🐉 All Three Heads</option>
-                        <option value="analysis">🔍 Analysis (Llama)</option>
-                        <option value="code_generation">💻 Code Generation (Qwen)</option>
-                        <option value="creative_writing">✨ Creative Writing (Gemma)</option>
-                        <option value="debugging">🐛 Debugging (Qwen)</option>
-                        <option value="research">📚 Research (Gemma)</option>
-                    </select>
-                </div>
-                
-                <div class="card">
                     <h3>Pipelines</h3>
                     <button class="pipeline-btn" onclick="runPipeline('feature')">
-                        <div class="name">🚀 Feature Development</div>
+                        <div class="name">🚀 Feature Dev</div>
                         <div class="desc">Analyze → Code → Document</div>
                     </button>
                     <button class="pipeline-btn" onclick="runPipeline('debug')">
-                        <div class="name">🐛 Debug Workflow</div>
+                        <div class="name">🐛 Debug</div>
                         <div class="desc">Analyze → Debug → Verify</div>
                     </button>
                     <button class="pipeline-btn" onclick="runPipeline('review')">
-                        <div class="name">📝 Code Review</div>
+                        <div class="name">📝 Review</div>
                         <div class="desc">Analyze → Suggest → Implement</div>
                     </button>
                     <button class="pipeline-btn" onclick="runPipeline('research')">
@@ -385,25 +204,34 @@
                 </div>
                 
                 <div class="card">
+                    <h3>Model Health</h3>
+                    <div id="health-status">
+                        <div class="stat-box" style="margin-bottom: 6px;"><span id="llama-health">⏳</span> Llama 3.2</div>
+                        <div class="stat-box" style="margin-bottom: 6px;"><span id="qwen-health">⏳</span> Qwen 2.5</div>
+                        <div class="stat-box"><span id="gemma-health">⏳</span> Gemma2</div>
+                    </div>
+                    <button class="btn btn-secondary" style="width: 100%; margin-top: 8px;" onclick="checkHealth()">Refresh</button>
+                </div>
+                
+                <div class="card">
+                    <h3>Safety Settings</h3>
+                    <div class="safety-badges" id="safety-badges">
+                        <span class="badge" id="badge-safe">Safe Mode</span>
+                        <span class="badge" id="badge-write">File Write</span>
+                        <span class="badge" id="badge-git">Git Commit</span>
+                    </div>
+                </div>
+                
+                <div class="card">
                     <h3>Stats</h3>
-                    <div class="stats">
-                        <div class="stat">
-                            <div class="stat-value" id="msg-count">0</div>
-                            <div class="stat-label">Messages</div>
-                        </div>
-                        <div class="stat">
-                            <div class="stat-value" id="time-stat">0s</div>
-                            <div class="stat-label">Last Response</div>
-                        </div>
+                    <div class="stats-grid">
+                        <div class="stat-box"><div class="stat-val" id="msg-count">0</div><div class="stat-label">Messages</div></div>
+                        <div class="stat-box"><div class="stat-val" id="time-stat">0s</div><div class="stat-label">Last Response</div></div>
                     </div>
                 </div>
                 
                 <div class="card">
                     <h3>Quick Actions</h3>
-                    <button class="pipeline-btn" onclick="checkHealth()">
-                        <div class="name">❤️ Health Check</div>
-                        <div class="desc">Check all model status</div>
-                    </button>
                     <button class="pipeline-btn" onclick="headToHead()">
                         <div class="name">⚔️ Head-to-Head</div>
                         <div class="desc">All heads collaborate</div>
@@ -417,18 +245,140 @@
         let conversationId = null;
         let messageCount = 0;
         
-        const chatMessages = document.getElementById('chat-messages');
-        const promptInput = document.getElementById('prompt-input');
-        const sendBtn = document.getElementById('send-btn');
-        const loading = document.getElementById('loading');
-        const roleSelect = document.getElementById('role-select');
+        // Auto-refresh system stats
+        setInterval(refreshSystemStats, 5000);
+        setInterval(refreshTasks, 10000);
+        refreshSystemStats();
+        refreshBenchmarks();
+        checkHealth();
         
-        promptInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
+        document.getElementById('prompt-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
         });
+        
+        function showTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.tab:nth-child(${tab === 'benchmarks' ? 1 : 2})`).classList.add('active');
+            document.getElementById(tab + '-tab').classList.add('active');
+        }
+        
+        async function refreshSystemStats() {
+            try {
+                const res = await fetch('/system');
+                const data = await res.json();
+                
+                document.getElementById('cpu-val').textContent = data.cpu_percent + '%';
+                document.getElementById('ram-val').textContent = data.ram_percent + '%';
+                document.getElementById('disk-val').textContent = data.disk_percent + '%';
+                document.getElementById('auto-val').textContent = data.autonomous_mode ? 'ON' : 'OFF';
+                document.getElementById('queue-val').textContent = data.task_queue_length;
+                document.getElementById('safe-val').textContent = data.safe_mode ? 'ON' : 'OFF';
+                
+                // Color coding
+                const cpuStat = document.getElementById('cpu-stat');
+                cpuStat.className = 'sys-stat' + (data.cpu_percent > 80 ? ' bad' : data.cpu_percent > 50 ? ' warn' : '');
+                
+                const ramStat = document.getElementById('ram-stat');
+                ramStat.className = 'sys-stat' + (data.ram_percent > 80 ? ' bad' : data.ram_percent > 50 ? ' warn' : '');
+                
+                const autoStat = document.getElementById('auto-stat');
+                autoStat.className = 'sys-stat' + (data.autonomous_mode ? ' good' : '');
+                
+                const safeStat = document.getElementById('safe-stat');
+                safeStat.className = 'sys-stat' + (data.safe_mode ? ' good' : ' warn');
+                
+                // Safety badges
+                document.getElementById('badge-safe').className = 'badge ' + (data.safe_mode ? 'on' : 'off');
+                document.getElementById('badge-write').className = 'badge ' + (data.allow_file_write ? 'on' : 'off');
+                document.getElementById('badge-git').className = 'badge ' + (data.allow_git_commit ? 'on' : 'off');
+            } catch (e) { console.error('Failed to fetch system stats:', e); }
+        }
+        
+        async function refreshTasks() {
+            try {
+                const res = await fetch('/tasks');
+                const data = await res.json();
+                
+                const list = document.getElementById('task-list');
+                if (data.recent_tasks && data.recent_tasks.length > 0) {
+                    list.innerHTML = data.recent_tasks.slice(0, 10).map(t => `
+                        <div class="task-item">
+                            <span>${t.prompt ? t.prompt.substring(0, 30) + '...' : t.id}</span>
+                            <span class="status ${t.status}">${t.status}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<div style="color: var(--text-muted); font-size: 0.8rem;">No tasks yet</div>';
+                }
+            } catch (e) { console.error('Failed to fetch tasks:', e); }
+        }
+        
+        async function refreshBenchmarks() {
+            try {
+                const res = await fetch('/benchmarks?limit=10');
+                const data = await res.json();
+                
+                const container = document.getElementById('benchmark-results');
+                if (data.benchmarks && data.benchmarks.length > 0) {
+                    container.innerHTML = data.benchmarks.map(b => `
+                        <div class="bench-item">
+                            <span class="model">${b.model}</span> - 
+                            ${b.success ? `<span class="time">${b.response_time}s</span> (${b.response_length} chars)` : `<span class="fail">Failed</span>`}
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.8rem;">No benchmarks yet</div>';
+                }
+            } catch (e) { console.error('Failed to fetch benchmarks:', e); }
+        }
+        
+        async function runBenchmark() {
+            const model = document.getElementById('bench-model').value;
+            const prompt = document.getElementById('bench-prompt').value;
+            
+            try {
+                const res = await fetch('/benchmark', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model, prompt })
+                });
+                await refreshBenchmarks();
+            } catch (e) { console.error('Benchmark failed:', e); }
+        }
+        
+        async function checkHealth() {
+            document.getElementById('llama-health').textContent = '⏳';
+            document.getElementById('qwen-health').textContent = '⏳';
+            document.getElementById('gemma-health').textContent = '⏳';
+            
+            try {
+                const res = await fetch('/health');
+                const data = await res.json();
+                
+                document.getElementById('llama-health').textContent = data.models['llama3.2:3b']?.status === 'healthy' ? '✅' : '❌';
+                document.getElementById('qwen-health').textContent = data.models['qwen2.5-coder:1.5b']?.status === 'healthy' ? '✅' : '❌';
+                document.getElementById('gemma-health').textContent = data.models['gemma2:2b']?.status === 'healthy' ? '✅' : '❌';
+            } catch (e) {
+                document.getElementById('llama-health').textContent = '❌';
+                document.getElementById('qwen-health').textContent = '❌';
+                document.getElementById('gemma-health').textContent = '❌';
+            }
+        }
+        
+        async function startAutonomous() {
+            try {
+                await fetch('/tasks/start', { method: 'POST' });
+                refreshSystemStats();
+            } catch (e) { alert('Failed to start: ' + e.message); }
+        }
+        
+        async function stopAutonomous() {
+            try {
+                await fetch('/tasks/stop', { method: 'POST' });
+                refreshSystemStats();
+            } catch (e) { alert('Failed to stop: ' + e.message); }
+        }
         
         function addMessage(content, type, model = null) {
             const msg = document.createElement('div');
@@ -438,64 +388,45 @@
                 else if (model.includes('gemma')) msg.classList.add('creative');
             }
             
-            let header = '';
-            if (type === 'user') {
-                header = '👤 You';
-            } else if (model) {
-                const modelNames = {
-                    'llama3.2:3b': '🔍 Analysis Head (Llama)',
-                    'qwen2.5-coder:1.5b': '💻 Code Head (Qwen)',
-                    'gemma2:2b': '✨ Creative Head (Gemma)'
-                };
-                header = modelNames[model] || model;
-            } else {
-                header = '🐉 Ghidorah';
-            }
+            const modelNames = {
+                'llama3.2:3b': '🔍 Analysis',
+                'qwen2.5-coder:1.5b': '💻 Code',
+                'gemma2:2b': '✨ Creative'
+            };
+            const header = type === 'user' ? '👤 You' : (model ? modelNames[model] || model : '🐉 Ghidora');
             
-            msg.innerHTML = `
-                <div class="message-header">${header}</div>
-                <div>${formatContent(content)}</div>
-            `;
-            chatMessages.appendChild(msg);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+            msg.innerHTML = `<div class="message-header">${header}</div><div>${formatContent(content)}</div>`;
+            document.getElementById('chat-messages').appendChild(msg);
+            document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
             messageCount++;
             document.getElementById('msg-count').textContent = messageCount;
         }
         
         function formatContent(content) {
-            // Basic markdown-like formatting
-            return content
-                .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-                .replace(/`([^`]+)`/g, '<code>$1</code>')
-                .replace(/\n/g, '<br>');
+            return content.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\n/g, '<br>');
         }
         
         function setLoading(isLoading) {
-            loading.classList.toggle('active', isLoading);
-            sendBtn.disabled = isLoading;
+            document.getElementById('loading').classList.toggle('active', isLoading);
+            document.getElementById('send-btn').disabled = isLoading;
         }
         
         async function sendMessage() {
-            const prompt = promptInput.value.trim();
+            const prompt = document.getElementById('prompt-input').value.trim();
             if (!prompt) return;
             
-            const role = roleSelect.value;
+            const role = document.getElementById('role-select').value;
             addMessage(prompt, 'user');
-            promptInput.value = '';
+            document.getElementById('prompt-input').value = '';
             setLoading(true);
             
             try {
-                const response = await fetch('/chat', {
+                const res = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        prompt,
-                        role,
-                        conversation_id: conversationId
-                    })
+                    body: JSON.stringify({ prompt, role, conversation_id: conversationId })
                 });
-                
-                const data = await response.json();
+                const data = await res.json();
                 
                 if (data.error) {
                     addMessage(`Error: ${data.error}`, 'assistant');
@@ -504,43 +435,31 @@
                     for (const [model, resp] of Object.entries(data.all_responses)) {
                         addMessage(resp.response, 'assistant', model);
                     }
-                    document.getElementById('time-stat').textContent = `${data.processing_time.toFixed(1)}s`;
+                    document.getElementById('time-stat').textContent = data.processing_time.toFixed(1) + 's';
                 } else {
                     conversationId = data.conversation_id;
                     addMessage(data.response, 'assistant', data.model);
-                    document.getElementById('time-stat').textContent = `${data.processing_time.toFixed(1)}s`;
+                    document.getElementById('time-stat').textContent = data.processing_time.toFixed(1) + 's';
                 }
-                
-                document.getElementById('conversation-id').textContent = `ID: ${conversationId?.slice(0, 8)}...`;
-            } catch (err) {
-                addMessage(`Error: ${err.message}`, 'assistant');
-            }
-            
+            } catch (e) { addMessage(`Error: ${e.message}`, 'assistant'); }
             setLoading(false);
         }
         
         async function runPipeline(type) {
-            const prompt = promptInput.value.trim();
-            if (!prompt) {
-                alert('Please enter a prompt first');
-                return;
-            }
+            const prompt = document.getElementById('prompt-input').value.trim();
+            if (!prompt) { alert('Enter a prompt first'); return; }
             
             addMessage(`[Pipeline: ${type}] ${prompt}`, 'user');
-            promptInput.value = '';
+            document.getElementById('prompt-input').value = '';
             setLoading(true);
             
             try {
-                const response = await fetch(`/pipeline/${type}`, {
+                const res = await fetch(`/pipeline/${type}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        prompt,
-                        conversation_id: conversationId
-                    })
+                    body: JSON.stringify({ prompt, conversation_id: conversationId })
                 });
-                
-                const data = await response.json();
+                const data = await res.json();
                 
                 if (data.error) {
                     addMessage(`Error: ${data.error}`, 'assistant');
@@ -549,37 +468,27 @@
                     for (const step of data.steps) {
                         addMessage(`**Step ${step.step}: ${step.role}**\n\n${step.response}`, 'assistant', step.model);
                     }
-                    document.getElementById('time-stat').textContent = `${data.processing_time.toFixed(1)}s`;
+                    document.getElementById('time-stat').textContent = data.processing_time.toFixed(1) + 's';
                 }
-            } catch (err) {
-                addMessage(`Error: ${err.message}`, 'assistant');
-            }
-            
+            } catch (e) { addMessage(`Error: ${e.message}`, 'assistant'); }
             setLoading(false);
         }
         
         async function headToHead() {
-            const prompt = promptInput.value.trim();
-            if (!prompt) {
-                alert('Please enter a prompt first');
-                return;
-            }
+            const prompt = document.getElementById('prompt-input').value.trim();
+            if (!prompt) { alert('Enter a prompt first'); return; }
             
             addMessage(`[Head-to-Head] ${prompt}`, 'user');
-            promptInput.value = '';
+            document.getElementById('prompt-input').value = '';
             setLoading(true);
             
             try {
-                const response = await fetch('/head-to-head', {
+                const res = await fetch('/head-to-head', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        prompt,
-                        conversation_id: conversationId
-                    })
+                    body: JSON.stringify({ prompt, conversation_id: conversationId })
                 });
-                
-                const data = await response.json();
+                const data = await res.json();
                 
                 if (data.error) {
                     addMessage(`Error: ${data.error}`, 'assistant');
@@ -588,34 +497,10 @@
                     for (const head of data.head_responses) {
                         addMessage(`**${head.head_name}**\n\n${head.response}`, 'assistant', head.model);
                     }
-                    addMessage(`**🔥 Final Synthesized Response**\n\n${data.final_response}`, 'assistant');
-                    document.getElementById('time-stat').textContent = `${data.processing_time.toFixed(1)}s`;
+                    addMessage(`**🔥 Synthesized**\n\n${data.final_response}`, 'assistant');
+                    document.getElementById('time-stat').textContent = data.processing_time.toFixed(1) + 's';
                 }
-            } catch (err) {
-                addMessage(`Error: ${err.message}`, 'assistant');
-            }
-            
-            setLoading(false);
-        }
-        
-        async function checkHealth() {
-            setLoading(true);
-            try {
-                const response = await fetch('/health');
-                const data = await response.json();
-                
-                let healthMsg = `**System Health: ${data.status.toUpperCase()}**\n\n`;
-                for (const [model, info] of Object.entries(data.models)) {
-                    const icon = info.status === 'healthy' ? '✅' : '❌';
-                    healthMsg += `${icon} ${model}: ${info.status}\n`;
-                }
-                healthMsg += `\n📊 Conversations: ${data.conversations_count}`;
-                healthMsg += `\n🔧 Git: ${data.git_enabled ? 'Enabled' : 'Disabled'}`;
-                
-                addMessage(healthMsg, 'assistant');
-            } catch (err) {
-                addMessage(`Health check failed: ${err.message}`, 'assistant');
-            }
+            } catch (e) { addMessage(`Error: ${e.message}`, 'assistant'); }
             setLoading(false);
         }
     </script>
