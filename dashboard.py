@@ -86,6 +86,12 @@ SCHEDULER_ENABLED = os.getenv('SCHEDULER_ENABLED', 'false').lower() == 'true'
 scheduler = BackgroundScheduler()
 SCHEDULED_JOBS = {}
 
+# Autonomous task queue
+TASK_QUEUE = []
+TASK_RESULTS = []
+AUTONOMOUS_MODE = False
+autonomous_thread = None
+
 # File watcher configuration
 FILE_WATCHER_ENABLED = os.getenv('FILE_WATCHER_ENABLED', 'false').lower() == 'true'
 WATCH_DIRECTORY = os.getenv('WATCH_DIRECTORY', os.getcwd())
@@ -668,6 +674,265 @@ def toggle_watcher():
         FILE_WATCHER_ENABLED = True
         start_file_watcher()
         return jsonify({'enabled': True, 'message': f'File watcher started on {WATCH_DIRECTORY}'})
+
+def process_autonomous_task(task):
+    """Process a single task autonomously using the appropriate pipeline"""
+    task_id = task.get('id', str(uuid.uuid4()))
+    task_type = task.get('type', 'feature')  # feature, debug, review, research, or custom
+    prompt = task.get('prompt', '')
+    output_file = task.get('output_file')
+    
+    print(f"🤖 Processing task {task_id}: {prompt[:50]}...")
+    
+    result = {
+        'task_id': task_id,
+        'task': task,
+        'status': 'processing',
+        'started_at': datetime.now().isoformat(),
+        'steps': []
+    }
+    
+    try:
+        # Determine pipeline based on task type
+        if task_type in PIPELINES:
+            pipeline_steps = PIPELINES[task_type]
+        else:
+            # Default: use all three heads
+            pipeline_steps = ['analysis', 'code_generation', 'creative_writing']
+        
+        current_output = prompt
+        
+        for i, role in enumerate(pipeline_steps):
+            model = ROLE_LLM_MAPPING.get(role, 'llama3.2:3b')
+            step_name = f"Step {i+1}: {role.replace('_', ' ').title()}"
+            print(f"   {step_name} using {model}...")
+            
+            if i == 0:
+                step_prompt = current_output
+            else:
+                step_prompt = f"""Previous step output:
+{current_output}
+
+Original task: {prompt}
+
+Continue as the {role.replace('_', ' ')} specialist."""
+            
+            res = ollama.chat(model=model, messages=[{'role': 'user', 'content': step_prompt}])
+            current_output = res['message']['content']
+            
+            result['steps'].append({
+                'step': i + 1,
+                'role': role,
+                'model': model,
+                'output': current_output
+            })
+        
+        result['final_output'] = current_output
+        result['status'] = 'completed'
+        result['completed_at'] = datetime.now().isoformat()
+        
+        # Write to file if specified
+        if output_file:
+            try:
+                output_path = Path(output_file)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Extract code if present
+                code_content = current_output
+                if '```' in code_content:
+                    import re
+                    code_blocks = re.findall(r'```[\w]*\n([\s\S]*?)```', code_content)
+                    if code_blocks:
+                        code_content = '\n\n'.join(code_blocks)
+                
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(code_content)
+                
+                result['file_written'] = str(output_path)
+                print(f"   ✅ Wrote output to {output_path}")
+                
+                EDITED_FILES_LOG.append({
+                    'timestamp': datetime.now().isoformat(),
+                    'file_path': str(output_path),
+                    'task_id': task_id,
+                    'auto_generated': True
+                })
+            except Exception as e:
+                result['file_error'] = str(e)
+                print(f"   ❌ Failed to write file: {e}")
+        
+        print(f"✅ Task {task_id} completed")
+        
+    except Exception as e:
+        result['status'] = 'failed'
+        result['error'] = str(e)
+        result['completed_at'] = datetime.now().isoformat()
+        print(f"❌ Task {task_id} failed: {e}")
+    
+    return result
+
+def run_autonomous_queue():
+    """Process tasks in the queue autonomously"""
+    global AUTONOMOUS_MODE, TASK_QUEUE, TASK_RESULTS
+    
+    print("🤖 Autonomous mode started - processing task queue...")
+    
+    while AUTONOMOUS_MODE and TASK_QUEUE:
+        task = TASK_QUEUE.pop(0)
+        result = process_autonomous_task(task)
+        TASK_RESULTS.append(result)
+        
+        # Small delay between tasks
+        import time
+        time.sleep(1)
+    
+    AUTONOMOUS_MODE = False
+    print("🤖 Autonomous mode finished - queue empty or stopped")
+
+@app.route('/tasks', methods=['GET'])
+def get_tasks():
+    """Get current task queue and results"""
+    return jsonify({
+        'autonomous_mode': AUTONOMOUS_MODE,
+        'queue': TASK_QUEUE,
+        'queue_length': len(TASK_QUEUE),
+        'results': TASK_RESULTS[-20:],  # Last 20 results
+        'total_completed': len(TASK_RESULTS)
+    })
+
+@app.route('/tasks', methods=['POST'])
+def add_tasks():
+    """Add tasks to the queue"""
+    data = request.get_json()
+    tasks = data.get('tasks', [])
+    
+    if isinstance(tasks, dict):
+        tasks = [tasks]  # Single task
+    
+    for task in tasks:
+        if 'id' not in task:
+            task['id'] = str(uuid.uuid4())
+        TASK_QUEUE.append(task)
+    
+    return jsonify({
+        'added': len(tasks),
+        'queue_length': len(TASK_QUEUE),
+        'message': f'Added {len(tasks)} task(s) to queue'
+    })
+
+@app.route('/tasks/start', methods=['POST'])
+def start_autonomous():
+    """Start autonomous task processing"""
+    global AUTONOMOUS_MODE, autonomous_thread
+    
+    if AUTONOMOUS_MODE:
+        return jsonify({'error': 'Autonomous mode already running'}), 400
+    
+    if not TASK_QUEUE:
+        return jsonify({'error': 'Task queue is empty'}), 400
+    
+    AUTONOMOUS_MODE = True
+    autonomous_thread = threading.Thread(target=run_autonomous_queue, daemon=True)
+    autonomous_thread.start()
+    
+    return jsonify({
+        'status': 'started',
+        'queue_length': len(TASK_QUEUE),
+        'message': 'Autonomous processing started'
+    })
+
+@app.route('/tasks/stop', methods=['POST'])
+def stop_autonomous():
+    """Stop autonomous task processing"""
+    global AUTONOMOUS_MODE
+    
+    AUTONOMOUS_MODE = False
+    return jsonify({
+        'status': 'stopping',
+        'message': 'Autonomous mode will stop after current task'
+    })
+
+@app.route('/tasks/clear', methods=['POST'])
+def clear_tasks():
+    """Clear the task queue"""
+    global TASK_QUEUE
+    cleared = len(TASK_QUEUE)
+    TASK_QUEUE = []
+    return jsonify({
+        'cleared': cleared,
+        'message': f'Cleared {cleared} task(s) from queue'
+    })
+
+@app.route('/build', methods=['POST'])
+def build_project():
+    """Quick endpoint to build something - adds tasks and starts autonomous mode"""
+    global AUTONOMOUS_MODE, autonomous_thread
+    
+    data = request.get_json()
+    project_name = data.get('name', 'project')
+    description = data.get('description', '')
+    output_dir = data.get('output_dir', f'./generated/{project_name}')
+    
+    # Create a task list for building the project
+    tasks = [
+        {
+            'id': f'{project_name}-plan',
+            'type': 'research',
+            'prompt': f"""Plan a small project: {description}
+
+Create a detailed plan including:
+1. Project structure (files needed)
+2. Key features to implement
+3. Dependencies required
+4. Step-by-step implementation order
+
+Keep it simple and focused."""
+        },
+        {
+            'id': f'{project_name}-main',
+            'type': 'feature',
+            'prompt': f"""Based on this project plan, create the main implementation file.
+
+Project: {description}
+
+Create clean, working code with:
+- Proper imports
+- Main functionality
+- Error handling
+- Comments explaining key parts""",
+            'output_file': f'{output_dir}/main.py'
+        },
+        {
+            'id': f'{project_name}-readme',
+            'type': 'creative_writing',
+            'prompt': f"""Create a README.md for this project: {description}
+
+Include:
+- Project title and description
+- Installation instructions
+- Usage examples
+- Features list""",
+            'output_file': f'{output_dir}/README.md'
+        }
+    ]
+    
+    # Add tasks to queue
+    for task in tasks:
+        TASK_QUEUE.append(task)
+    
+    # Start autonomous processing
+    if not AUTONOMOUS_MODE:
+        AUTONOMOUS_MODE = True
+        autonomous_thread = threading.Thread(target=run_autonomous_queue, daemon=True)
+        autonomous_thread.start()
+    
+    return jsonify({
+        'project': project_name,
+        'tasks_queued': len(tasks),
+        'output_dir': output_dir,
+        'status': 'building',
+        'message': f'Building {project_name} - {len(tasks)} tasks queued'
+    })
 
 @app.route('/automation', methods=['POST'])
 def automation_endpoint():
